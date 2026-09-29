@@ -1,144 +1,188 @@
 """
 Affiche l'ecran de l'iPad en direct dans une fenetre, en FLUIDE (flux video HEVC).
 
-Reserve a iPadOS 27+ : sur les versions anterieures l'iPad refuse le flux
-("Remote control requires iOS 27.0 or later"). Pour les versions plus anciennes,
-utiliser app.py (captures, plus lent).
+Juste la video, sans aucune interface. Reserve a iPadOS 27+ ; pour les versions
+plus anciennes, utiliser app.py (captures, plus lent).
 
-Prerequis (comme app.py) : tunnel lance en admin et image developpeur montee.
-Le plus simple : passer par mirror.bat. Sinon, en manuel :
-    python -m pymobiledevice3 remote tunneld          (terminal admin)
-    python -m pymobiledevice3 mounter auto-mount
-    python app_ios27.py
+Fonctionnement : le serveur de mirroring de pymobiledevice3 (serve-web) tourne en
+arriere-plan, sans navigateur. Il gere la session video avec l'iPad (accuses de
+reception, images cles, reprise apres coupure) ; ce programme lit son flux
+/stream.bin, le decode avec PyAV et affiche la derniere image recue.
 
-Quitter : touche q ou Echap.
+Prerequis : tunnel lance en admin (le plus simple : passer par mirror.bat).
+
+Touches : f = plein ecran, q ou Echap = quitter.
+L'image suit automatiquement l'orientation de l'iPad.
 """
 
 import asyncio
-import socket
-import struct
+import base64
+import subprocess
 import sys
-import uuid
+import threading
+import time
 
 import av
 import cv2
-from pymobiledevice3.remote.core_device.display_service import DisplayService
-from pymobiledevice3.remote.core_device.screen_stream import depacketize_hevc
-from pymobiledevice3.tunneld.api import get_tunneld_devices
+import requests
+from pymobiledevice3.lockdown import create_using_usbmux
+from pymobiledevice3.services.springboard import InterfaceOrientation, SpringBoardServicesService
 
-# Selector loop : sock_recv UDP fiable sous Windows.
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+PORT = 8765
+URL = f"http://127.0.0.1:{PORT}"
+WINDOW = "iPad"
 
-WINDOW = "iPad (q = quitter)"
-DISPLAY_ID = 1
-
-
-def build_rtcp_rr(local_ssrc, remote_ssrc, highest_seq):
-    """Receiver Report minimal (RFC 3550). Sans envoi periodique, l'encodeur
-    de l'iPad s'arrete au bout de ~25 s (RTCPTimeoutEnabled)."""
-    return struct.pack("!BBHII BBBB IIII",
-                       0x81, 0xC9, 7,
-                       local_ssrc & 0xFFFFFFFF, remote_ssrc & 0xFFFFFFFF,
-                       0, 0, 0, 0,
-                       highest_seq & 0xFFFFFFFF, 0, 0, 0)
+ROTATION = {
+    InterfaceOrientation.PORTRAIT: None,
+    InterfaceOrientation.PORTRAIT_UPSIDE_DOWN: cv2.ROTATE_180,
+    InterfaceOrientation.LANDSCAPE: cv2.ROTATE_90_COUNTERCLOCKWISE,
+    InterfaceOrientation.LANDSCAPE_HOME_TO_LEFT: cv2.ROTATE_90_CLOCKWISE,
+}
 
 
-async def get_rsd():
-    devices = await get_tunneld_devices()
-    if not devices:
-        sys.exit("Tunnel introuvable. Lance d'abord, en admin :\n"
-                 "  python -m pymobiledevice3 remote tunneld")
-    return devices[0]
+class State:
+    def __init__(self):
+        self.running = True
+        self.frame = None  # derniere image decodee (av.VideoFrame)
+        self.rotation = None
+        self.error = None
 
 
-def show(frame):
-    """Affiche une image decodee. Renvoie False si l'utilisateur veut quitter."""
-    img = frame.to_ndarray(format="bgr24")
-    cv2.imshow(WINDOW, img)
-    if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
-        return False
-    return cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) >= 0
+def start_server():
+    """Lance serve-web en arriere-plan (localhost uniquement, sans son)."""
+    return subprocess.Popen(
+        [sys.executable, "-m", "pymobiledevice3", "developer", "core-device", "display",
+         "serve-web", "--bind", "127.0.0.1", "--http-port", str(PORT), "--no-audio"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
 
 
-async def main():
-    rsd = await get_rsd()
-    sender_ip = rsd.service.address[0]
-
-    sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-    sock.bind(("::", 0))
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
-    port = sock.getsockname()[1]
-
-    cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
-    decoder = av.CodecContext.create("hevc", "r")
-
-    async with DisplayService(rsd) as service:
-        answer = await service.start_video_stream(
-            receiver_ip=service.service.local_address[0],
-            receiver_port=port,
-            sender_ip=sender_ip,
-            display_id=DISPLAY_ID,
-        )
-        session_id = uuid.UUID(str(
-            answer["connection"]["options"]["avcMediaStreamOptionClientSessionID"]["uuid"]))
-
-        # SSRC vus du cote iPad : LocalSSRC = le sien, RemoteSSRC = le notre.
-        cfg = answer["connection"].get("streamConfig", {})
-        rtcp_dest = (sender_ip, int(cfg.get("SourcePort", 0)), 0, 0)
-        local_ssrc = int(cfg.get("RemoteSSRC", 0))
-        remote_ssrc = int(cfg.get("LocalSSRC", 0))
-
-        loop = asyncio.get_running_loop()
-        sock.setblocking(False)
-        highest_seq = 0
-        rtcp_last = 0.0
-        fu_buffer = bytearray()
-        au = bytearray()
-        running = True
-
+def fetch_hvcc(state, timeout=30):
+    """Attend que le flux soit pret et renvoie la configuration du decodeur (hvcC)."""
+    deadline = time.time() + timeout
+    while state.running and time.time() < deadline:
         try:
-            while running:
-                data = await loop.sock_recv(sock, 65535)
-                if len(data) < 12 or 64 <= (data[1] & 0x7F) <= 95:
-                    continue  # trop court ou paquet RTCP
+            r = requests.get(URL + "/codec", timeout=5)
+            if r.ok and r.json().get("description"):
+                return base64.b64decode(r.json()["description"])
+        except requests.RequestException:
+            pass
+        time.sleep(0.5)
+    return None
 
-                highest_seq = max(highest_seq, int.from_bytes(data[2:4], "big"))
-                marker = data[1] >> 7
-                header_len = 12 + (data[0] & 0x0F) * 4
-                if data[0] & 0x10:  # extension
-                    ext = int.from_bytes(data[header_len + 2:header_len + 4], "big")
-                    header_len += 4 + ext * 4
 
-                nals = []
-                depacketize_hevc(data[header_len:], fu_buffer, nals)
-                for nal in nals:
-                    if nal:
-                        au += b"\x00\x00\x00\x01" + nal
+def new_decoder(hvcc):
+    decoder = av.CodecContext.create("hevc", "r")
+    decoder.extradata = hvcc
+    decoder.thread_type = "AUTO"
+    return decoder
 
-                if marker and au:
-                    try:
-                        for packet in decoder.parse(bytes(au)):
-                            for frame in decoder.decode(packet):
-                                if not show(frame):
-                                    running = False
-                    except av.error.InvalidDataError:
-                        pass  # trames initiales avant la 1re image cle : on ignore
-                    au = bytearray()
 
-                # Receiver Report ~1x/seconde pour garder le flux vivant.
-                now = loop.time()
-                if now - rtcp_last > 1.0 and local_ssrc and remote_ssrc:
-                    sock.sendto(build_rtcp_rr(local_ssrc, remote_ssrc, highest_seq), rtcp_dest)
-                    rtcp_last = now
-        finally:
+def receive(state):
+    """Lit /stream.bin : suite de messages [taille 4 o][type 1 o][image HEVC].
+    type 0 = image cle, 1 = image delta, 2 = image cle apres reinitialisation."""
+    while state.running:
+        hvcc = fetch_hvcc(state)
+        if hvcc is None:
+            state.error = "Le flux video n'a pas demarre (tunnel lance ? iPad deverrouille ?)"
+            return
+        try:
+            with requests.get(URL + "/stream.bin", stream=True, timeout=(5, 30)) as r:
+                r.raise_for_status()
+                decoder = new_decoder(hvcc)
+                buf = bytearray()
+                for chunk in r.iter_content(chunk_size=None):
+                    if not state.running:
+                        return
+                    buf += chunk
+                    while len(buf) >= 5:
+                        size = int.from_bytes(buf[:4], "big")
+                        if len(buf) < 4 + size:
+                            break
+                        kind, au = buf[4], bytes(buf[5:4 + size])
+                        del buf[:4 + size]
+                        if kind == 2:
+                            decoder = new_decoder(fetch_hvcc(state) or hvcc)
+                        try:
+                            for frame in decoder.decode(av.Packet(au)):
+                                state.frame = frame
+                        except av.error.InvalidDataError:
+                            pass  # image abimee : la suivante image cle resynchronise
+        except requests.RequestException:
+            time.sleep(1)  # coupure : on se reconnecte
+
+
+def watch_orientation(state):
+    """Interroge l'orientation de l'iPad ~2x/s pour tourner l'image."""
+    async def poll():
+        springboard = SpringBoardServicesService(lockdown=await create_using_usbmux())
+        while state.running:
             try:
-                await service.stop_media_stream(session_id)
+                state.rotation = ROTATION.get(await springboard.get_interface_orientation())
             except Exception:
                 pass
-            sock.close()
-            cv2.destroyAllWindows()
+            await asyncio.sleep(0.5)
+
+    try:
+        asyncio.run(poll())
+    except Exception:
+        pass  # sans orientation, l'image reste en portrait
+
+
+def fit_window(img):
+    """Taille de fenetre : l'image entiere a ~85 % de la hauteur de l'ecran."""
+    h, w = img.shape[:2]
+    target = 900 if h >= w else 700
+    cv2.resizeWindow(WINDOW, int(w * target / h), target)
+
+
+def main():
+    state = State()
+    server = start_server()
+    threading.Thread(target=receive, args=(state,), daemon=True).start()
+    threading.Thread(target=watch_orientation, args=(state,), daemon=True).start()
+
+    cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+    print("Connexion au flux video de l'iPad...  (f = plein ecran, q/Echap = quitter)")
+
+    shown, shape, fullscreen = None, None, False
+    frames, t0 = 0, time.time()
+    try:
+        while True:
+            frame = state.frame
+            if frame is not None and frame is not shown:
+                shown = frame
+                img = frame.to_ndarray(format="bgr24")
+                if state.rotation is not None:
+                    img = cv2.rotate(img, state.rotation)
+                if img.shape != shape and not fullscreen:
+                    fit_window(img)
+                shape = img.shape
+                cv2.imshow(WINDOW, img)
+                frames += 1
+
+            now = time.time()
+            if now - t0 >= 1:
+                cv2.setWindowTitle(WINDOW, f"iPad  -  {frames / (now - t0):.0f} fps")
+                frames, t0 = 0, now
+
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord("q"), 27):
+                break
+            if key == ord("f"):
+                fullscreen = not fullscreen
+                cv2.setWindowProperty(WINDOW, cv2.WND_PROP_FULLSCREEN,
+                                      cv2.WINDOW_FULLSCREEN if fullscreen else cv2.WINDOW_NORMAL)
+            if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1 and shown is not None:
+                break  # fenetre fermee avec la croix
+            if state.error:
+                print("ERREUR :", state.error)
+                break
+    finally:
+        state.running = False
+        server.terminate()
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

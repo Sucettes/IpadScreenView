@@ -10,10 +10,10 @@ d'Apple** via la librairie `pymobiledevice3`.
 
 | Mode | Version iPad | Méthode | Fluidité | Lanceur |
 |------|--------------|---------|----------|---------|
-| **Captures** (actuel) | iOS 16 → 26.x | screenshots PNG (`app.py`) | ~15–20 fps | `lancer_maintenant.bat` |
-| **Vidéo HEVC** | **iPadOS 27+** | flux vidéo + navigateur | 30–60 fps | `lancer_ios27.bat` |
+| **Captures** | iOS 16 → 26.x | screenshots PNG (`app.py`) | ~5–20 fps | `lancer_maintenant.bat` |
+| **Vidéo HEVC** | **iPadOS 27+** | flux vidéo, fenêtre native (`app_ios27.py`) | ~40–60 fps | `lancer_ios27.bat` |
 
-Le **mode vidéo HEVC** (fluide, avec contrôle tactile/clavier depuis le navigateur) est une
+Le **mode vidéo HEVC** (fluide) est une
 fonctionnalité Apple **verrouillée à iPadOS 27 ou plus** : l'iPad lui-même refuse le flux
 sur les versions antérieures (`Remote control requires iOS 27.0 or later`). iPadOS 27 est
 sorti le **14 septembre 2026** (l'iPad 10ᵉ génération est compatible) : mettre l'iPad à jour
@@ -29,7 +29,7 @@ pour profiter du mode vidéo. Sur une version plus ancienne, le **mode captures*
 | `lancer_maintenant.bat`  | Double-clic : force le mode captures (tunnel + montage + `app.py`).          |
 | `lancer_ios27.bat`       | Double-clic : force le mode vidéo HEVC (à utiliser dès iPadOS 27).           |
 | `app.py`                 | L'application de capture : affiche l'écran de l'iPad dans une fenêtre.       |
-| `app_ios27.py`           | Fenêtre native **fluide** (flux HEVC) — **uniquement iPadOS 27+** (pas encore testé). |
+| `app_ios27.py`           | Fenêtre native **fluide** (flux HEVC), juste la vidéo — **uniquement iPadOS 27+**. |
 | `_env.bat`               | Utilisé par les lanceurs : crée l'environnement Python local `.venv` et y installe les dépendances. |
 | `requirements.txt`       | Les dépendances Python à installer.                                         |
 | `README.md`              | Ce guide (installation, activation, dépannage).                             |
@@ -102,7 +102,8 @@ Brancher l'iPad, le déverrouiller, puis **double-cliquer sur `mirror.bat`**. C'
 
 `mirror.bat` détecte la version de l'iPad et choisit la bonne méthode automatiquement :
 - iPadOS **< 27** → mode captures (une fenêtre affiche l'écran ; **quitter :** `q` ou `Échap`).
-- iPadOS **27+** → mode vidéo HEVC (le navigateur s'ouvre sur `http://127.0.0.1:8080/`).
+- iPadOS **27+** → mode vidéo HEVC (une fenêtre affiche l'écran ; `f` = plein écran,
+  **quitter :** `q` ou `Échap`).
 
 Dans les deux cas il demande les droits admin, ouvre une fenêtre **« Tunnel »** (à laisser
 ouverte) et monte l'image développeur avant de démarrer.
@@ -126,35 +127,29 @@ lancé **en administrateur** et l'**image développeur (DDI) montée**.
    ```
 3. Lancer le mode voulu :
    - Mode captures : `python app.py`
-   - Mode vidéo HEVC (iPadOS 27+) : `python -m pymobiledevice3 developer core-device display serve-web --bind 127.0.0.1`
+   - Mode vidéo HEVC (iPadOS 27+) : `python app_ios27.py`
 
 ---
 
 ## 4 bis. Mode vidéo HEVC (iPadOS 27+) — détails
 
-Quand l'iPad sera sur **iPadOS 27**, le flux vidéo fluide (30–60 fps) devient disponible. Deux
-façons de l'afficher :
+Sur **iPadOS 27+**, `mirror.bat` / `lancer_ios27.bat` ouvrent **`app_ios27.py`** : une fenêtre
+qui affiche **uniquement l'écran de l'iPad**, sans aucune interface.
 
-### Option A — navigateur (via `serve-web` / `lancer_ios27.bat` / `mirror.bat`)
-- Sert une page web complète, **décodée en hardware par le navigateur**.
-- Ouvrir **Edge ou Chrome** (récent) sur `http://127.0.0.1:8080/`.
-- Permet aussi de **contrôler** l'iPad (tactile, clavier, boutons), mais l'écran est entouré d'un
-  **panneau d'options** (l'image n'occupe qu'une partie de la page).
-- ⚠️ **Page noire ?** Installer **« HEVC Video Extensions »** depuis le Microsoft Store.
+- **Fluidité :** ~40–60 fps mesurés (iPad 10ᵉ gén., iPadOS 27.0.1). Le fps s'affiche dans le
+  **titre** de la fenêtre ; il baisse quand l'écran ne bouge pas (l'iPad n'envoie que les changements).
+- **Orientation :** l'image suit **automatiquement** la rotation de l'iPad.
+- **Touches :** `f` = plein écran, `q` ou `Échap` = quitter.
+- Lancement manuel : `python app_ios27.py` (tunnel + image développeur requis, comme partout).
 
-### Option B — fenêtre native épurée (`app_ios27.py`)
-- Affiche **uniquement l'écran de l'iPad** dans une fenêtre, comme `app.py` aujourd'hui, mais
-  **fluide** — sans aucune UI parasite. C'est le bon choix pour « juste voir l'écran ».
-- Décodage HEVC par `PyAV` (paquet `av`). Lancer :
-  ```
-  python app_ios27.py
-  ```
-  (tunnel + image développeur requis, comme partout — passer par les `.bat` est plus simple).
-
-> ⚠️ **`app_ios27.py` n'a pas encore pu être testé** : il faut un iPad réellement sous iPadOS 27
-> (sur 26.5 l'iPad refuse le flux). Le code est prêt ; il reste à le valider
-> sur un iPad mis à jour. `app.py` n'est **pas** nécessaire dans ce mode et ne devient pas plus rapide
-> tout seul : le 30–60 fps vient du flux HEVC, un mécanisme différent des captures PNG.
+### Alternative — page web (avec contrôle tactile/clavier)
+```
+python -m pymobiledevice3 developer core-device display serve-web --bind 127.0.0.1
+```
+puis ouvrir **Edge ou Chrome** sur `http://127.0.0.1:8080/`. Permet de **contrôler** l'iPad
+(tactile, clavier, boutons), mais l'écran est entouré d'un panneau d'options.
+- ⚠️ **Page noire ?** **Firefox ne décode pas le HEVC** : utiliser Edge ou Chrome. Si c'est
+  encore noir, installer **« HEVC Video Extensions »** depuis le Microsoft Store.
 
 ---
 
@@ -250,7 +245,7 @@ version antérieure (ex. 26.5), c'est **impossible**, quel que soit l'outil.
 - **iOS 17+ : échec / message de tunnel** → lancer `python -m pymobiledevice3 remote tunneld`
   dans un terminal **administrateur** d'abord, **et** monter la DDI (cause n°4). Les `.bat`
   s'en chargent.
-- **Image saccadée en mode captures** → c'est la limite de la méthode (~15–20 fps, capture PNG
+- **Image saccadée en mode captures** → c'est la limite de la méthode (~5–20 fps, capture PNG
   par image). Le FPS réel s'affiche en vert en haut à gauche de la fenêtre. Pour de la vraie
   fluidité, c'est le **mode vidéo HEVC** (iPadOS 27+) qu'il faut.
 - **`pip` ou commande introuvable** → réinstaller Python en cochant « Add Python to PATH ».
@@ -267,9 +262,11 @@ décodage PNG dans un **thread séparé**, pour que réception et affichage se *
 (gain de fluidité). On n'affiche toujours que la **dernière image** disponible (temps réel).
 
 **Mode vidéo HEVC (iPadOS 27+)** : l'iPad **encode son écran en H.265 (HEVC) en hardware** et
-pousse un flux **RTP/UDP** via le tunnel ; `pymobiledevice3` le relaie en HTTP au navigateur,
-qui le **décode en hardware** (WebCodecs) et l'affiche sur un canvas. C'est le mécanisme utilisé
-par le mirroring de Xcode — d'où les 30–60 fps.
+pousse un flux **RTP/UDP** via le tunnel. C'est le mécanisme utilisé par le mirroring de Xcode.
+`app_ios27.py` lance en arrière-plan le serveur de mirroring de `pymobiledevice3` (`serve-web`,
+sans navigateur), qui gère la session avec l'iPad (accusés de réception, images clés, reprise
+après coupure) ; il lit ensuite son flux `/stream.bin`, le **décode avec PyAV** et affiche
+toujours la **dernière image** reçue. L'orientation est lue auprès de SpringBoard ~2×/s.
 
 Aucun pilote n'est modifié : à la fermeture, l'iPad est exactement dans son état normal et reste
 synchronisable avec iTunes / l'app Appareils Apple. La seule modification réversible est le

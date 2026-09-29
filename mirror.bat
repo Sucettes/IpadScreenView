@@ -2,8 +2,8 @@
 REM ============================================================================
 REM  mirror.bat  --  LANCEUR INTELLIGENT (detecte la version, choisit la methode)
 REM
-REM   - iPadOS < 27  -> mode captures (app.py), ~15-20 fps
-REM   - iPadOS 27+   -> mode video HEVC (serve-web + navigateur), 30-60 fps
+REM   - iPadOS < 27  -> mode captures (app.py), lent (~5-20 fps)
+REM   - iPadOS 27+   -> mode video HEVC (app_ios27.py, fenetre native), ~40-60 fps
 REM
 REM  Double-cliquer ce fichier : il fait TOUT (admin, detection, tunnel,
 REM  montage, lancement de la bonne methode). Aucune commande a retenir.
@@ -81,13 +81,11 @@ echo [4/5] Montage de l'image developpeur (DDI)...
 REM --- 6) Choisir la methode selon la version --------------------------------
 if %MAJOR% geq 27 (
     echo [5/5] iPadOS 27+ : mode video HEVC fluide.
-    echo       Ouverture du navigateur sur http://127.0.0.1:8080/
-    echo       Page noire ? Installer "HEVC Video Extensions" ^(Microsoft Store^).
+    echo       Touches : f = plein ecran, q ou Echap = quitter.
     echo.
-    start "" http://127.0.0.1:8080/
-    %PY% -m pymobiledevice3 developer core-device display serve-web --bind 127.0.0.1
+    %PY% app_ios27.py
 ) else (
-    echo [5/5] iPadOS %MAJOR% : mode captures d'ecran ^(~15-20 fps^).
+    echo [5/5] iPadOS %MAJOR% : mode captures d'ecran ^(lent^).
     echo       Quitter la fenetre video : touche q ou Echap.
     echo.
     %PY% app.py

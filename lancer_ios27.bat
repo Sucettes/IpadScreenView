@@ -2,11 +2,10 @@
 REM ============================================================================
 REM  Mirroring iPad -> PC Windows  --  MODE iPadOS 27+ (flux video HEVC fluide)
 REM  A UTILISER UNIQUEMENT quand l'iPad est sur iPadOS 27 ou plus.
-REM  Methode : serveur de mirroring integre a pymobiledevice3 + navigateur.
-REM  Decodage video par le navigateur (Edge/Chrome) : 30 a 60 images/seconde.
-REM  Double-cliquer ce fichier. Il fait tout : admin, tunnel, montage, navigateur.
+REM  Methode : flux video HEVC de l'iPad affiche dans une fenetre (app_ios27.py).
+REM  Double-cliquer ce fichier. Il fait tout : admin, tunnel, montage, fenetre.
 REM ============================================================================
-title Mirroring iPad (iPadOS 27) - serve-web HEVC
+title Mirroring iPad (iPadOS 27) - video HEVC
 cd /d "%~dp0"
 
 REM --- 1) Droits administrateur (le tunnel l'exige) --------------------------
@@ -59,16 +58,11 @@ REM --- 4) Monter l'image developpeur (ignore si deja montee) -----------------
 echo [3/4] Montage de l'image developpeur (DDI)...
 %PY% -m pymobiledevice3 mounter auto-mount
 
-REM --- 5) Navigateur + serveur de mirroring video ---------------------------
-echo [4/4] Ouverture du navigateur et demarrage du flux video HEVC...
-start "" http://127.0.0.1:8080/
+REM --- 5) Fenetre video native ---------------------------------------------
+echo [4/4] Demarrage du flux video HEVC...
+echo       Touches : f = plein ecran, q ou Echap = quitter.
 echo.
-echo Le flux tourne. Pour arreter : Ctrl-C ici, puis fermer la fenetre "Tunnel".
-echo Page noire ? Installer "HEVC Video Extensions" depuis le Microsoft Store.
-echo.
-REM --bind 127.0.0.1 = accessible seulement depuis ce PC (les endpoints
-REM tactile/clavier/boutons n'ont aucune authentification).
-%PY% -m pymobiledevice3 developer core-device display serve-web --bind 127.0.0.1
+%PY% app_ios27.py
 
 echo.
 echo Termine. Tu peux fermer cette fenetre et la fenetre "Tunnel".
