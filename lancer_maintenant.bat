@@ -20,16 +20,25 @@ echo   Mirroring iPad  -^>  PC Windows     (mode captures d'ecran)
 echo ================================================================
 echo.
 
+REM --- Environnement Python local (.venv), cree/mis a jour au besoin ---------
+call "%~dp0_env.bat"
+if errorlevel 1 (
+    pause
+    exit /b 1
+)
+set "PY=.venv\Scripts\python.exe"
+echo.
+
 REM --- 2) Tunnel dans sa propre fenetre (a NE PAS fermer) ---------------------
 echo [1/4] Demarrage du tunnel (laisser la fenetre "Tunnel" ouverte)...
-start "iPad - Tunnel (NE PAS FERMER)" cmd /k python -m pymobiledevice3 remote tunneld
+start "iPad - Tunnel (NE PAS FERMER)" cmd /k %PY% -m pymobiledevice3 remote tunneld
 
 REM --- 3) Attendre que le tunnel detecte l'iPad ------------------------------
 echo [2/4] Attente de la detection de l'iPad...
 set /a _tries=0
 :wait_tunnel
 timeout /t 2 /nobreak >nul
-python -c "import requests,sys; r=requests.get('http://127.0.0.1:49151',timeout=1); sys.exit(0 if r.ok and r.json() else 1)" >nul 2>&1
+%PY% -c "import requests,sys; r=requests.get('http://127.0.0.1:49151',timeout=1); sys.exit(0 if r.ok and r.json() else 1)" >nul 2>&1
 if %errorlevel%==0 goto tunnel_ok
 set /a _tries+=1
 if %_tries% lss 15 goto wait_tunnel
@@ -46,12 +55,12 @@ echo       OK : iPad detecte.
 
 REM --- 4) Monter l'image developpeur (ignore si deja montee) -----------------
 echo [3/4] Montage de l'image developpeur (DDI)...
-python -m pymobiledevice3 mounter auto-mount
+%PY% -m pymobiledevice3 mounter auto-mount
 
 REM --- 5) Lancer l'application de capture ------------------------------------
 echo [4/4] Demarrage de l'affichage... (fermer avec q ou Echap)
 echo.
-python app.py
+%PY% app.py
 
 echo.
 echo Termine. Tu peux fermer cette fenetre et la fenetre "Tunnel".

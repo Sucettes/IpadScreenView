@@ -15,8 +15,9 @@ d'Apple** via la librairie `pymobiledevice3`.
 
 Le **mode vidéo HEVC** (fluide, avec contrôle tactile/clavier depuis le navigateur) est une
 fonctionnalité Apple **verrouillée à iPadOS 27 ou plus** : l'iPad lui-même refuse le flux
-sur les versions antérieures (`Remote control requires iOS 27.0 or later`). En attendant
-iPadOS 27 (sortie stable ~septembre 2026), le **mode captures** est la seule option.
+sur les versions antérieures (`Remote control requires iOS 27.0 or later`). iPadOS 27 est
+sorti le **14 septembre 2026** (l'iPad 10ᵉ génération est compatible) : mettre l'iPad à jour
+pour profiter du mode vidéo. Sur une version plus ancienne, le **mode captures** reste la seule option.
 
 ---
 
@@ -28,7 +29,8 @@ iPadOS 27 (sortie stable ~septembre 2026), le **mode captures** est la seule opt
 | `lancer_maintenant.bat`  | Double-clic : force le mode captures (tunnel + montage + `app.py`).          |
 | `lancer_ios27.bat`       | Double-clic : force le mode vidéo HEVC (à utiliser dès iPadOS 27).           |
 | `app.py`                 | L'application de capture : affiche l'écran de l'iPad dans une fenêtre.       |
-| `app_ios27.py`           | Fenêtre native **fluide** (flux HEVC) — **uniquement iPadOS 27+** (à tester en sept. 2026). |
+| `app_ios27.py`           | Fenêtre native **fluide** (flux HEVC) — **uniquement iPadOS 27+** (pas encore testé). |
+| `_env.bat`               | Utilisé par les lanceurs : crée l'environnement Python local `.venv` et y installe les dépendances. |
 | `requirements.txt`       | Les dépendances Python à installer.                                         |
 | `README.md`              | Ce guide (installation, activation, dépannage).                             |
 
@@ -57,11 +59,14 @@ Lancer le logiciel une fois, brancher l'iPad, et accepter **« Faire confiance �
 Utiliser un câble **USB-C de données** (beaucoup de câbles ne servent qu'à la charge).
 Brancher directement sur un port du PC (pas via un hub/station d'accueil).
 
-### d) Installer les dépendances Python
-Dans ce dossier, ouvrir un terminal et lancer :
-```
-pip install -r requirements.txt
-```
+### d) Dépendances Python — automatique
+Rien à faire : au premier lancement, les `.bat` créent un **environnement Python local**
+`.venv` dans ce dossier et y installent les dépendances (`requirements.txt`). Rien n'est
+installé dans le Python global de l'ordi ; supprimer le dossier `.venv` suffit à tout retirer.
+Si `requirements.txt` change, les dépendances sont réinstallées automatiquement.
+
+Pour les commandes manuelles de ce guide, utiliser le Python du `.venv` : soit l'activer
+(`.venv\Scripts\activate`), soit remplacer `python` par `.venv\Scripts\python.exe`.
 
 ---
 
@@ -147,8 +152,8 @@ façons de l'afficher :
   (tunnel + image développeur requis, comme partout — passer par les `.bat` est plus simple).
 
 > ⚠️ **`app_ios27.py` n'a pas encore pu être testé** : il faut un iPad réellement sous iPadOS 27
-> (sur 26.5 l'iPad refuse le flux). Le code est prêt ; on validera/ajustera ensemble en
-> septembre 2026. `app.py` n'est **pas** nécessaire dans ce mode et ne devient pas plus rapide
+> (sur 26.5 l'iPad refuse le flux). Le code est prêt ; il reste à le valider
+> sur un iPad mis à jour. `app.py` n'est **pas** nécessaire dans ce mode et ne devient pas plus rapide
 > tout seul : le 30–60 fps vient du flux HEVC, un mécanisme différent des captures PNG.
 
 ---
@@ -235,9 +240,9 @@ montage automatiquement.
 **Explication :** le **flux vidéo HEVC** est verrouillé par Apple à **iPadOS 27+**. Sur une
 version antérieure (ex. 26.5), c'est **impossible**, quel que soit l'outil.
 
-**Solution :** utiliser le **mode captures** (`lancer_maintenant.bat` / `app.py`) en attendant
-la mise à jour vers iPadOS 27 (sortie stable ~septembre 2026 ; l'iPad 10ᵉ génération est
-compatible).
+**Solution :** mettre l'iPad à jour vers iPadOS 27 (sorti le 14 septembre 2026 ; l'iPad
+10ᵉ génération est compatible). D'ici là, utiliser le **mode captures**
+(`lancer_maintenant.bat` / `app.py`).
 
 ---
 
