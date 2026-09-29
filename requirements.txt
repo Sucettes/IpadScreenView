@@ -1,0 +1,8 @@
+# Dependances pour le mirroring iPad -> Windows
+# Installer sur le PC cible avec :  pip install -r requirements.txt
+
+pymobiledevice3>=9.29   # communication avec l'iPad via USB (services developpeur Apple)
+opencv-python           # affichage du flux video dans une fenetre
+numpy                   # manipulation des images (frames)
+requests                # detection du tunnel par les lanceurs .bat (deja tire par pymobiledevice3)
+av                      # decodage HEVC pour la fenetre native iPadOS 27 (app_ios27.py)
